@@ -5,7 +5,6 @@
 // V8 contexts are created. Each context has: its own global object, its own scope chain. 
 // Code is compiled to V8 bytecode. Execution happens inside that context. 
 // Important: contexts share the same V8 isolate, meaning: same heap, same event loop, same native bindings
-const { SourceMap } = require('module');
 const vm = require('vm');
 const { SourceMapConsumer } = loadSourceMapPackage();
 
@@ -100,13 +99,13 @@ function originalLocationFor(sourceMap, generatedLocation) {
  * @param {*} inputFile 
  * @returns {string} - The formatted error message including the location in the generated code if available.
  */
-function formatSandboxRuntimeError(err, inputFile, SourceMap = null) {
+function formatSandboxRuntimeError(err, inputFile, sourceMap = null) {
     const lines = [`Error: ${err.message}`];
     const jsFile = `${inputFile}.js`;
     const where = extractLocationFromStack(err && err.stack, jsFile);
 
     if (where) {
-        const original = originalLocationFor(SourceMap, where);
+        const original = originalLocationFor(sourceMap, where);
         if (original) {
             lines.push(`At source ${original.source}:${original.line}:${original.column}`);
         }
@@ -148,14 +147,14 @@ function executeInSandbox(jsCode, inputFile, { verbose = false } = {}) {
 /** 
  * Runs the given JavaScript code in a sandboxed environment and returns an object indicating success or failure.
  */
-function runSandboxWithDiagnostics(jsCode, inputFile, { verbose = false, SourceMap = null } = {}) {
+function runSandboxWithDiagnostics(jsCode, inputFile, { verbose = false, sourceMap = null } = {}) {
     try {
         executeInSandbox(jsCode, inputFile, { verbose });
         return { ok: true };
     } catch (err) {
         return {
             ok: false,
-            message: formatSandboxRuntimeError(err, inputFile, SourceMap),
+            message: formatSandboxRuntimeError(err, inputFile, sourceMap),
             stack: verbose ? err.stack : null,
         };
     }
@@ -163,6 +162,8 @@ function runSandboxWithDiagnostics(jsCode, inputFile, { verbose = false, SourceM
 
 module.exports = {
     executeInSandbox,
+    extractLocationFromStack,
     formatSandboxRuntimeError,
+    originalLocationFor,
     runSandboxWithDiagnostics,
 };

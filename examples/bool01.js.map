@@ -1,0 +1,12 @@
+{
+  "version": 3,
+  "sources": [
+    "examples/bool01.drg"
+  ],
+  "names": [],
+  "mappings": "AAAA;EACI,IAAA;EACA,IAAA;EAEA,AAAE,AAAF,KAAI;EACJ,AAAE,AAAF,KAAI,MAAK,IAAM;EACf,QAAA,IAAM",
+  "file": "examples/bool01.drg.js",
+  "sourcesContent": [
+    "{\n    bool x;\n    bool i;\n\n    i = true;\n    x = i && 1.0 < 3; \n    print(x);\n}"
+  ]
+}

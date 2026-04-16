@@ -1,6 +1,6 @@
 const { inspect } = require('util');
 const fs = require('fs');
-const path = require('path');
+
 
 function validateInputFile(inputFile, program) {
     if (!inputFile) {
@@ -33,12 +33,10 @@ function printAstIfRequested(ast, inputFile, options) {
         const astOutputFile = options.output + '.ast.json';
         fs.writeFileSync(astOutputFile, astJson);
         console.error(`Babel AST saved to ${astOutputFile}`);
-    } else if (options.verbose && !options.sandbox) {
-        //console.log(astJson);
     }
 }
 
-async function writeJsOutput(jsCode, options) {
+async function writeJsOutput(jsCode, options, sourceMap = null) {
     if (options.pretty) {
         const prettier = require('prettier');
         jsCode = await prettier.format(jsCode, { parser: 'babel' });
