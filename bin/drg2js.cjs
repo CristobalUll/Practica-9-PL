@@ -51,11 +51,12 @@ async function main() {
         const ast = parser.parse(input);
 
         printAstIfRequested(ast, inputFile, options);
-        const {code} = generateJavaScript(ast, options, input, inputFile);
+        const {code, map} = generateJavaScript(ast, options, input, inputFile);
 
         if (options.sandbox) {
             const sandboxResult = runSandboxWithDiagnostics(code, inputFile, {
                 verbose: options.verbose,
+                SourceMap: map
             });
             if (!sandboxResult.ok) {
                 console.error(sandboxResult.message);
@@ -66,7 +67,7 @@ async function main() {
             }
         }
 
-        await writeJsOutput(code, options);
+        await writeJsOutput(code, options, map);
     } catch (err) {
         console.error(formatError(err, inputFile));
         if (options.verbose) {
