@@ -52,6 +52,10 @@ async function writeJsOutput(jsCode, options) {
 
     fs.writeFileSync(options.output, jsCode);
 
+    if (sourceMap) {
+        fs.writeFileSync(`${options.output}.map`, JSON.stringify(sourceMap, null, 2));
+    }
+
     if (!options.sandbox) {
         if (options.verbose) {
             console.error(`Output saved to ${options.output}`);
