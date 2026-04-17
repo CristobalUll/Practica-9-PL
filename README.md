@@ -1,181 +1,349 @@
-# Dragon to JavaScript Translator
+# Practica 9 - Generacion manual de codigo y sourcemaps
 
-A small compiler lab that translates from Dragon language programs to JavaScript.
+## Resumen
 
-## Warning 
+En esta practica se ha completado el transpiler de Dragon a JavaScript para que no dependa solamente de un generador automatico, sino que pueda recorrer manualmente el AST y generar codigo JavaScript controlando en todo momento la linea y columna que se esta escribiendo.
 
-> [!CAUTION]
-> Some of the documentation files have been written with the assistance of AI tools. If you find any errors, inconsistencies, or areas that need improvement, please feel free to edit the documentation and submit a pull request with your changes. 
+El objetivo principal es que, si el codigo JavaScript generado falla en tiempo de ejecucion, el programa pueda mostrar tambien la posicion original del error en el fichero `.drg`.
 
+Por ejemplo, en vez de mostrar solo:
 
-## Template Updates for Prácticas Competenciales (Competency Labs)
-
-See instructions for template updates [docs/template-updates.md](docs/template-updates.md)
-
-## Overview
-
-Current pipeline includes:
-
-1. Lexical analysis with Jison lexer rules (`src/grammar.l`)
-2. Parsing with Jison grammar (`src/grammar.jison`) into a Babel-compatible JavaScript AST
-3. JavaScript code generation with Babel generator 
-4. Optional sandbox execution (`-s`) in Node `vm`
-
-```mermaid
-flowchart TD
-  A[Dragon source .drg] --> B[Lexer + Parser]
-  B --> C[Babel-compatible JS AST]
-  C --> E[Codegen]
-  E --> G[Generated .js]
-  G --> H{Run with -s?}
-  H -- No --> I[Done]
-  H -- Yes --> J[Run in Node vm]
-  J --> I
+```text
+At generated code examples/runtime-err02-arrayaccess.drg.js:4:1
 ```
 
-## Setup
+ahora tambien muestra:
+
+```text
+At source examples/runtime-err02-arrayaccess.drg:6:3
+At generated code examples/runtime-err02-arrayaccess.drg.js:4:1
+```
+
+## Punto de partida
+
+La plantilla ya incluia:
+
+- Un lexer en `src/grammar.l`.
+- Una gramatica en `src/grammar.jison`.
+- Un CLI en `bin/drg2js.cjs`.
+- Helpers de entrada/salida en `src/io-helpers.cjs`.
+- Helpers de ejecucion en sandbox en `src/sandbox-helpers.cjs`.
+- Tests y ejemplos en `__tests__` y `examples`.
+
+El fichero que estaba pendiente de completar para esta practica era principalmente:
+
+```text
+src/codegen.cjs
+```
+
+Tambien habia que conectar la generacion del sourcemap con el CLI, la escritura de ficheros y el sandbox.
+
+## Gramaticas usadas
+
+Se han usado los ficheros proporcionados:
+
+```text
+src/grammar.l
+src/grammar.jison
+```
+
+El lexer reconoce tokens como:
+
+- Palabras clave: `if`, `else`, `while`, `do`, `break`, `print`, `true`, `false`.
+- Tipos: `int`, `float`, `char`, `bool`.
+- Identificadores: `ID`.
+- Numeros: `NUM` y `REAL`.
+- Strings: `STRING`.
+- Operadores: `+`, `-`, `*`, `/`, `!`, `&&`, `||`, `==`, `!=`, `<`, `<=`, `>`, `>=`.
+
+La gramatica construye un AST compatible con Babel/ESTree usando nodos como:
+
+- `Program`
+- `BlockStatement`
+- `VariableDeclaration`
+- `ExpressionStatement`
+- `IfStatement`
+- `WhileStatement`
+- `DoWhileStatement`
+- `BreakStatement`
+- `AssignmentExpression`
+- `BinaryExpression`
+- `LogicalExpression`
+- `UnaryExpression`
+- `MemberExpression`
+- `CallExpression`
+- `NumericLiteral`
+- `BooleanLiteral`
+- `StringLiteral`
+
+Cada nodo recibe informacion de localizacion mediante `loc`, usando las posiciones de Jison (`@$`, `@1`, `@2`, etc.). Esa informacion es necesaria para crear los sourcemaps.
+
+## Generacion manual de JavaScript
+
+Se ha implementado `src/codegen.cjs`.
+
+Este fichero contiene un generador manual basado en el patron visitor. La idea es que cada tipo de nodo del AST tiene una funcion encargada de convertirlo a JavaScript.
+
+Ejemplos:
+
+```text
+Program              -> emitProgram
+BlockStatement       -> emitBlockStatement
+VariableDeclaration  -> emitVariableDeclaration
+IfStatement          -> emitIfStatement
+WhileStatement       -> emitWhileStatement
+DoWhileStatement     -> emitDoWhileStatement
+CallExpression       -> emitCallExpression
+MemberExpression     -> emitMemberExpression
+BinaryExpression     -> emitBinaryLikeExpression
+LogicalExpression    -> emitBinaryLikeExpression
+UnaryExpression      -> emitUnaryExpression
+```
+
+Por ejemplo, un nodo:
+
+```js
+{
+  type: 'WhileStatement',
+  test,
+  body
+}
+```
+
+se genera como:
+
+```js
+while (test) body
+```
+
+La funcion correspondiente escribe:
+
+```js
+while (
+```
+
+despues genera la condicion, despues escribe:
+
+```js
+)
+```
+
+y por ultimo genera el cuerpo.
+
+## Clase `Emitter`
+
+La clase `Emitter` se ha creado para centralizar la escritura del codigo generado.
+
+Sus responsabilidades son:
+
+- Guardar los fragmentos de JavaScript generados.
+- Mantener la linea actual del fichero generado.
+- Mantener la columna actual del fichero generado.
+- Gestionar la indentacion.
+- Registrar mappings para el sourcemap.
+
+En vez de concatenar codigo directamente con strings, se usa:
+
+```js
+emitter.write('while (');
+```
+
+Esto permite que cada caracter escrito actualice la posicion actual. Si se escribe un salto de linea, aumenta la linea y la columna vuelve a cero.
+
+## Sourcemaps
+
+Tambien se ha implementado la generacion de sourcemaps.
+
+Un sourcemap relaciona una posicion del codigo generado con una posicion del codigo original.
+
+Cada mapping contiene:
+
+```js
+generated: { line, column }
+original: { line, column }
+source: sourceFile
+```
+
+En esta practica:
+
+- `generated` apunta al JavaScript generado.
+- `original` apunta al codigo Dragon original.
+- `source` es el fichero `.drg`.
+
+Cuando el generador va a emitir codigo correspondiente a un nodo del AST, llama a:
+
+```js
+emitter.mark(node);
+```
+
+Esa llamada registra la correspondencia entre:
+
+```text
+posicion actual en el .js
+posicion original del nodo en el .drg
+```
+
+Al final, el CLI escribe dos ficheros:
+
+```text
+archivo.js
+archivo.js.map
+```
+
+El JavaScript generado incluye al final:
+
+```js
+//# sourceMappingURL=archivo.js.map
+```
+
+## Ejecucion en sandbox
+
+El fichero `src/sandbox-helpers.cjs` se ha adaptado para usar el sourcemap cuando hay errores de ejecucion.
+
+El flujo es:
+
+1. El JavaScript generado se ejecuta con `vm.runInNewContext`.
+2. Si ocurre un error, Node genera un stack trace con una posicion del `.js`.
+3. Se extrae la linea y columna generada usando `extractLocationFromStack`.
+4. Se consulta el sourcemap con `originalLocationFor`.
+5. Se imprime el error con la posicion original y la posicion generada.
+
+El resultado tiene este formato:
+
+```text
+Error: Cannot read properties of undefined (reading '0')
+At source examples/runtime-err02-arrayaccess.drg:6:3
+At generated code examples/runtime-err02-arrayaccess.drg.js:4:1
+```
+
+## Cambios en el CLI
+
+Se ha actualizado `bin/drg2js.cjs` para que trabaje con el nuevo resultado de `generateJavaScript`.
+
+Antes se esperaba solo codigo:
+
+```js
+const { code } = generateJavaScript(...);
+```
+
+Ahora el generador devuelve:
+
+```js
+const { code, map } = generateJavaScript(...);
+```
+
+El CLI usa:
+
+- `code` para escribir o ejecutar el JavaScript.
+- `map` para escribir el `.js.map`.
+- `map` para remapear errores si se usa la opcion `-s`.
+
+## Cambios en la escritura de salida
+
+Se ha actualizado `src/io-helpers.cjs`.
+
+La funcion `writeJsOutput` ahora puede recibir un sourcemap:
+
+```js
+writeJsOutput(code, options, map)
+```
+
+Si existe `map`, escribe:
+
+```text
+salida.js
+salida.js.map
+```
+
+## Ejemplos de uso
+
+Instalar dependencias:
 
 ```bash
 npm install
+```
+
+Generar el parser desde las gramaticas:
+
+```bash
 npm run build
 ```
 
-`npm run build` regenerates `src/parser.cjs` from `src/grammar.jison` and `src/grammar.l`.
-
-## Scripts
-
-- `npm run build`: regenerate parser/lexer.
-- `npm start -- <file.drg> [options]`: run translator CLI.
-- `npm test`: run Jest tests.
-- `npm run coverage`: run tests with coverage report.
-
-## CLI Usage
+Generar JavaScript:
 
 ```bash
-bin/drg2js.cjs [options] <filename>
+node bin/drg2js.cjs examples/prac-comp.drg -o tmp/prac-comp.js
 ```
 
-Options:
-
-- `-o, --output <fileName>`: output file path for generated JavaScript.
-  - Default: `<input>.js`
-- `-a, --ast`: write AST JSON to `<output>.ast.json`.
-- `-s, --sandbox`: execute generated JavaScript in sandbox.
-- `-v, --verbose`: enable verbose logging.
-
-## Basic Examples
-
-Generate JavaScript. Let us compile [examples/prac-comp.drg](examples/prac-comp.drg) to JavaScript:
+Generar JavaScript y AST:
 
 ```bash
-bin/drg2js.cjs examples/prac-comp.drg
+node bin/drg2js.cjs examples/prac-comp.drg -o tmp/prac-comp.js --ast
 ```
 
-This writes `examples/prac-comp.js` by default.
-
-Generate to an explicit path:
+Ejecutar en sandbox:
 
 ```bash
-bin/drg2js.cjs examples/prac-comp.drg -o tmp/prac-comp.js --ast
+node bin/drg2js.cjs examples/bool01.drg -s
 ```
 
-This writes [tmp/prac-comp.js](tmp/prac-comp.js) and [tmp/prac-comp.js.ast.json](tmp/prac-comp.js.ast.json).
-
-Run in sandbox:
+Probar un error de ejecucion:
 
 ```bash
-bin/drg2js.cjs examples/bool01.drg -s
+node bin/drg2js.cjs examples/runtime-err02-arrayaccess.drg -s
 ```
 
-Expect the output to be:
+Ejecutar tests en Linux:
 
-```
-true
-```
-
-### Array Initialization Example
-
-Arrays in Dragon are automatically initialized to `0` (this is a lab requirement: arrays must be unitialized to 0'):
-
-Dragon source (`examples/simple02.drg`):
-```dragon
-{ int[10] arr; }
-```
-
-Generated JavaScript:
 ```bash
-bin/drg2js.cjs examples/simple02.drg -o tmp/simple02.js
+npm test
 ```
 
-This produces JavaScript with arrays initialized using `Array.from()`:
-
-```javascript
-{
-  let $arr = Array.from({
-    length: 10
-  }, () => 0);
-}
-```
-
-All array elements are initialized to `0` automatically. Therefore, when seen a declaration like `int[10] arr;` **you must build an AST node that declares the variable `$arr` and initializes to `0` all its elements**.
-
-Scalar variables are also initialized:
-
-```C
-{ 
-  int x;          // Initialized to 0
-  float y;        // Initialized to 0
-  bool z;         // Initialized to false
-  char msg;       // Initialized to ""
-}
-```
-
-Generated JavaScript:
-
-```javascript
-{
-  let $x = 0;
-  let $y = 0;
-  let $z = false;
-  let $msg = "";
-}
-```
-
-**Note that Dragon variable identifiers are prefixed with `$` to avoid collisions with compiler developer identifiers and JavaScript system identifiers**.
-
-## Project Structure
-
-Simplified project structure:
+## Ficheros principales modificados
 
 ```text
-.
-|-- bin/
-|   `-- drg2js.cjs
-|
-|-- examples/*.drg   
-|
-|-- src/
-|   |-- grammar.jison
-|   |-- grammar.l
-|   |-- parser.cjs     // generated by Jison
-|   |-- codegen.cjs
-|   |-- io-helpers.cjs
-|   `-- sandbox-helpers.cjs
-|
-|-- tmp/*.js. // use it for temporary outputs during development, ignored by git unless you force add files
-|
-`-- __tests__/
+src/grammar.l
+src/grammar.jison
+src/parser.cjs
+src/codegen.cjs
+src/sandbox-helpers.cjs
+src/io-helpers.cjs
+bin/drg2js.cjs
 ```
 
-### tmp folder
+## Comprobaciones realizadas
 
-The `tmp` folder is "ignored" by git (`.gitignore`) and we suggest you use it for temporary outputs during development. We leave it here so that you can see some examples we have left of generated JavaScript files and AST json to imitate. 
+Se comprobo que:
 
-## How to do it 
+- El parser se genera correctamente con `npm run build`.
+- `examples/bool01.drg` se ejecuta y muestra `true`.
+- Los errores runtime muestran posicion en el fichero `.drg`.
+- Se generan ficheros `.js.map`.
+- El codigo generado para `prac-comp.drg` tiene sintaxis JavaScript valida.
 
-- [Grammar](docs/grammar/README.md)
-- [Types](docs/grammar/types/types-and-initialization.md)
-- [Lexer](docs/lexer/README.md)
-- [The driver: drg2js](docs/drg2js/README.md)
-- [Sandboxes](docs/sandbox/README.md)
-- [Sourcemaps](docs/sourcemap/README.md)
+Ejemplo comprobado:
+
+```bash
+node bin/drg2js.cjs __tests__/fixtures/runtime-err02-arrayaccess.drg -s
+```
+
+Salida esperada:
+
+```text
+Error: Cannot read properties of undefined (reading '0')
+At source __tests__/fixtures/runtime-err02-arrayaccess.drg:6:3
+At generated code __tests__/fixtures/runtime-err02-arrayaccess.drg.js:4:1
+```
+
+## Conclusion
+
+La practica queda completada porque el compilador:
+
+1. Lee codigo Dragon.
+2. Lo convierte en tokens con el lexer.
+3. Lo transforma en AST con Jison.
+4. Recorre el AST manualmente con un visitor.
+5. Genera JavaScript.
+6. Genera un sourcemap.
+7. Ejecuta el JavaScript en sandbox si se usa `-s`.
+8. Traduce errores runtime del JavaScript generado a posiciones del codigo Dragon original.
