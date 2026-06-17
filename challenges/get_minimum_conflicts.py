@@ -37,70 +37,55 @@ Retorno
 Restricciones
     1 <= len(primary), len(secondary) <= 1000
     primary y secondary solo contienen letras minusculas del alfabeto ingles.
+
+Nota: no basta con fusionar "tomando siempre el caracter mas pequeno
+disponible" (como en un merge sort). Esa estrategia da la fusion mas
+pequena lexicograficamente, pero no siempre minimiza el numero de
+conflictos (se puede comprobar con un contraejemplo como primary="ba",
+secondary="ab"). Por eso se usa programacion dinamica: la decision en
+cada paso depende de todo lo que queda por fusionar en ambas ramas.
 """
 
 
-def _inversions_within(s):
-    """Numero de inversiones (pares i<j con s[i] > s[j]) dentro de s."""
+def _inversions(s):
+    """Numero de pares i<j con s[i] > s[j] dentro de una misma cadena."""
     freq = [0] * 26
-    inversions = 0
+    total = 0
     for ch in s:
         c = ord(ch) - 97
-        inversions += sum(freq[c + 1:])
+        total += sum(freq[c + 1:])
         freq[c] += 1
-    return inversions
-
-
-def _prefix_freqs(s):
-    """freqs[k] = conteo por letra de s[:k], para k = 0..len(s)."""
-    freqs = [[0] * 26]
-    current = [0] * 26
-    for ch in s:
-        current = current[:]
-        current[ord(ch) - 97] += 1
-        freqs.append(current)
-    return freqs
-
-
-def _suffix_greater_counts(freqs):
-    """
-    Para cada prefijo k, greater[k][c] = numero de elementos en ese
-    prefijo cuyo valor (letra) es estrictamente mayor que c.
-    """
-    result = []
-    for freq in freqs:
-        g = [0] * 27
-        for c in range(24, -1, -1):
-            g[c] = g[c + 1] + freq[c + 1]
-        result.append(g)
-    return result
+    return total
 
 
 def getMinimumConflicts(primary, secondary):
     n, m = len(primary), len(secondary)
 
-    inv_primary = _inversions_within(primary)
-    inv_secondary = _inversions_within(secondary)
+    # countP[i] / countS[j]: cuantas veces aparece cada letra en el
+    # prefijo primary[:i] / secondary[:j].
+    countP = [[0] * 26]
+    for ch in primary:
+        countP.append(countP[-1][:])
+        countP[-1][ord(ch) - 97] += 1
 
-    freq_primary_prefix = _prefix_freqs(primary)
-    freq_secondary_prefix = _prefix_freqs(secondary)
+    countS = [[0] * 26]
+    for ch in secondary:
+        countS.append(countS[-1][:])
+        countS[-1][ord(ch) - 97] += 1
 
-    greater_in_secondary = _suffix_greater_counts(freq_secondary_prefix)
-    greater_in_primary = _suffix_greater_counts(freq_primary_prefix)
-
-    # cross[i][j] = minimo numero de conflictos "cruzados" (entre un
-    # commit de primary y uno de secondary) al fusionar primary[:i] con
-    # secondary[:j], preservando el orden interno de cada rama.
-    cross = [[0] * (m + 1) for _ in range(n + 1)]
+    # dp[i][j]: minimo de conflictos "cruzados" (uno de cada rama) al
+    # fusionar primary[:i] con secondary[:j].
+    dp = [[0] * (m + 1) for _ in range(n + 1)]
     for i in range(1, n + 1):
-        c_p = ord(primary[i - 1]) - 97
+        cp = ord(primary[i - 1]) - 97
         for j in range(1, m + 1):
-            c_s = ord(secondary[j - 1]) - 97
-            place_primary_last = cross[i - 1][j] + greater_in_secondary[j][c_p]
-            place_secondary_last = cross[i][j - 1] + greater_in_primary[i][c_s]
-            cross[i][j] = min(place_primary_last, place_secondary_last)
+            cs = ord(secondary[j - 1]) - 97
+            dp[i][j] = min(
+                dp[i - 1][j] + sum(countS[j][cp + 1:]),   # primary[i-1] va de ultimo
+                dp[i][j - 1] + sum(countP[i][cs + 1:]),   # secondary[j-1] va de ultimo
+            )
 
-    return inv_primary + inv_secondary + cross[n][m]
+    return _inversions(primary) + _inversions(secondary) + dp[n][m]
 
 
 if __name__ == '__main__':
