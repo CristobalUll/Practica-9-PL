@@ -7,3 +7,4 @@ src/lexer.cjs
 *.output
 coverage
 tmp
+__pycache__/
